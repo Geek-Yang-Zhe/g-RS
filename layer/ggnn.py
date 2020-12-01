@@ -3,15 +3,12 @@ import math
 
 
 class GGNN():
-    def __init__(self):
-        self.num_item = 4
-        self.hidden_size = 8
-        self.steps = 2
-        self.batch_size = 2
+    def __init__(self, hidden_size, steps, num_item):
+        self.num_item = num_item
+        self.hidden_size = hidden_size
+        self.steps = steps
 
-        self.item = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, None])
-        self.in_adj = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, None, None])
-        self.out_adj = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, None, None])
+        self.build()
 
     def build(self):
         self.embedding = tf.get_variable(name='embedding', shape=[self.num_item, self.hidden_size], dtype=tf.float32,
@@ -35,19 +32,19 @@ class GGNN():
                                            initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
                                                                                      math.sqrt(self.hidden_size)))
 
-    def call(self):
-        last_state = tf.nn.embedding_lookup(self.embedding, self.item)
+    def call(self, item, out_adj, in_adj):
+        last_state = tf.nn.embedding_lookup(self.embedding, item)
         # 只是借用了GRU_Cell的方法，并不是真正的RNN
         for step in range(self.steps):
             with tf.variable_scope('ggnn'):
                 state_in = tf.matmul(last_state, self.W_in) + self.b_in
                 state_out = tf.matmul(last_state, self.W_out) + self.b_out
-                rnn_input = tf.concat([tf.matmul(self.out_adj, state_out), tf.matmul(self.in_adj, state_in)], axis=-1)
+                rnn_input = tf.concat([tf.matmul(out_adj, state_out), tf.matmul(in_adj, state_in)], axis=-1)
                 with tf.variable_scope('gru'):
                     gate = tf.matmul(tf.concat([rnn_input, last_state], axis=-1), self.W_gate)
                     sigmoid_gate = tf.sigmoid(gate)
                     update_gate, reset_gate = tf.split(sigmoid_gate, 2, axis=2)
-                    reset_state = tf.multiply(reset_gate, last_state)
+                    reset_state = reset_gate * last_state
                     candidate_state = tf.tanh(tf.matmul(tf.concat([rnn_input, reset_state], axis=-1), self.W_candidate))
                     last_state = (1 - update_gate) * last_state + update_gate * candidate_state
         return last_state
