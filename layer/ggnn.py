@@ -11,26 +11,27 @@ class GGNN():
         self.build()
 
     def build(self):
-        self.embedding = tf.get_variable(name='embedding', shape=[self.num_item, self.hidden_size], dtype=tf.float32,
+        # 这里第一个为补零的embedding，其他为正常的item
+        self.embedding = tf.get_variable(name='embedding', shape=[1 + self.num_item, self.hidden_size], dtype=tf.float32,
                                          initializer=tf.random_uniform_initializer(0, 1))
         self.W_in = tf.get_variable(name='W_in', shape=[self.hidden_size, self.hidden_size], dtype=tf.float32,
-                                    initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
-                                                                              math.sqrt(self.hidden_size)))
-        self.b_in = tf.get_variable(name='b_in', shape=[self.hidden_size, ], dtype=tf.float32,
-                                    initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
-                                                                              math.sqrt(self.hidden_size)))
+                                    initializer=tf.random_uniform_initializer(-math.sqrt(1/self.hidden_size),
+                                                                              math.sqrt(1/self.hidden_size)))
+        self.b_in = tf.get_variable(name='bias_in', shape=[self.hidden_size, ], dtype=tf.float32,
+                                    initializer=tf.random_uniform_initializer(-math.sqrt(1/self.hidden_size),
+                                                                              math.sqrt(1/self.hidden_size)))
         self.W_out = tf.get_variable(name='W_out', shape=[self.hidden_size, self.hidden_size], dtype=tf.float32,
-                                     initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
-                                                                               math.sqrt(self.hidden_size)))
-        self.b_out = tf.get_variable(name='b_out', shape=[self.hidden_size, ], dtype=tf.float32,
-                                     initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
-                                                                               math.sqrt(self.hidden_size)))
+                                     initializer=tf.random_uniform_initializer(-math.sqrt(1/self.hidden_size),
+                                                                               math.sqrt(1/self.hidden_size)))
+        self.b_out = tf.get_variable(name='bias_out', shape=[self.hidden_size, ], dtype=tf.float32,
+                                     initializer=tf.random_uniform_initializer(-math.sqrt(1/self.hidden_size),
+                                                                               math.sqrt(1/self.hidden_size)))
         self.W_gate = tf.get_variable(name='W_gate_r_u', shape=[3 * self.hidden_size, 2 * self.hidden_size], dtype=tf.float32,
-                                      initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
-                                                                                math.sqrt(self.hidden_size)))
+                                      initializer=tf.random_uniform_initializer(-math.sqrt(1/self.hidden_size),
+                                                                                math.sqrt(1/self.hidden_size)))
         self.W_candidate = tf.get_variable(name='W_candidate', shape=[3 * self.hidden_size, self.hidden_size],
-                                           initializer=tf.random_uniform_initializer(-math.sqrt(self.hidden_size),
-                                                                                     math.sqrt(self.hidden_size)))
+                                           initializer=tf.random_uniform_initializer(-math.sqrt(1/self.hidden_size),
+                                                                                     math.sqrt(1/self.hidden_size)))
 
     def call(self, item, out_adj, in_adj):
         last_state = tf.nn.embedding_lookup(self.embedding, item)
