@@ -1,29 +1,29 @@
 import tensorflow as tf
 from layer.ggnn import GGNN
+from metrics.precision_mrr import PRE_MRR
 import math
-import sys
-
 
 class SRGNNLayer(object):
-    def __init__(self, maxlen, num_item, hidden_size, batch_size, learning_rate, l2_weight):
-        self.maxlen = maxlen
+    def __init__(self, num_item, hidden_size, learning_rate, l2_weight, ggnn_step, topk, log):
         self.hidden_size = hidden_size
-        self.batch_size = batch_size
         self.lr = learning_rate
         self.l2_weight = l2_weight
+        self.topk = topk
+        self.log = log
 
-        self.ggnn = GGNN(hidden_size=self.hidden_size, steps=1, num_item=num_item)
+        self.ggnn = GGNN(hidden_size=self.hidden_size, steps=ggnn_step, num_item=num_item)
+        self.pre_mrr = PRE_MRR(topk=topk)
 
-        self.mask = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, self.maxlen])
-        self.in_adj = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, None, None])
-        self.out_adj = tf.placeholder(dtype=tf.float32, shape=[self.batch_size, None, None])
-        self.item = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, None])
-        self.input_index = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, self.maxlen])
-        self.labels = tf.placeholder(dtype=tf.int32, shape=[self.batch_size, ])
+        self.mask = tf.placeholder(dtype=tf.int32, shape=[None, None])
+        self.in_adj = tf.placeholder(dtype=tf.float32, shape=[None, None, None])
+        self.out_adj = tf.placeholder(dtype=tf.float32, shape=[None, None, None])
+        self.item_sess = tf.placeholder(dtype=tf.int32, shape=[None, None])
+        self.input_index = tf.placeholder(dtype=tf.int32, shape=[None, None])
+        self.label = tf.placeholder(dtype=tf.int32, shape=[None, ])
 
         self.build()
 
-    def build(self, mode='train'):
+    def build(self):
         self.W1 = tf.get_variable(name='w1_att', shape=[self.hidden_size, self.hidden_size], dtype=tf.float32,
                                   initializer=tf.random_uniform_initializer(-math.sqrt(1 / self.hidden_size),
                                                                             math.sqrt(1 / self.hidden_size)))
@@ -41,45 +41,47 @@ class SRGNNLayer(object):
                                                                             math.sqrt(1 / self.hidden_size)))
         self.global_step = tf.Variable(0, dtype=tf.int32, name='global_step')
 
-        self.loss = self.call()
+        self.loss, self.batch_pre, self.batch_mrr = self.call()
+        if self.log is True:
+            tf.summary.scalar('loss', self.loss)
+            tf.summary.scalar('P20', self.batch_pre)
+            tf.summary.scalar('MRR20', self.batch_mrr)
+        self.merge_ops = tf.summary.merge_all()
         self.optimizer = tf.train.AdamOptimizer(self.lr).minimize(self.loss, global_step=self.global_step)
+
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
 
     def call(self, trainable=True):
-        batch_item_embedding = self.ggnn.call(self.item, in_adj=self.in_adj,
+        batch_item_embedding = self.ggnn.call(self.item_sess, in_adj=self.in_adj,
                                               out_adj=self.out_adj)  # [batch_size, max_node, hidden_size]
         with tf.name_scope('get_last_item_embedding'):
-            last_index_indices = tf.stack([tf.range(self.batch_size), tf.reduce_sum(self.mask, axis=1) - 1], axis=1)
-            last_index = tf.gather_nd(self.input_index, last_index_indices)
-            last_item_indices = tf.stack([tf.range(self.batch_size), last_index], axis=1)
-            last_item_embedding = tf.gather_nd(batch_item_embedding, last_item_indices)
+            last_index_indices = tf.reshape(tf.reduce_sum(self.mask, axis=1) - 1, [-1, 1])
+            last_index = tf.gather(self.input_index, last_index_indices, batch_dims=-1) # [batch_size, 1]
+            last_item_embedding = tf.gather(batch_item_embedding, last_index, batch_dims=-1) # [batch_size, 1, hidden_size]
 
         with tf.name_scope('get_input_item_embedding'):
-            input_batch = tf.tile(tf.expand_dims(tf.range(self.batch_size), 1), [1, self.maxlen])
-            input_item_indices = tf.stack([input_batch, self.input_index], axis=-1)
-            input_embedding = tf.gather_nd(batch_item_embedding,
-                                           input_item_indices)  # [batch_size, maxlen, hidden_size]
+            input_embedding = tf.gather(batch_item_embedding, self.input_index, batch_dims=-1)  # [batch_size, maxlen, hidden_size]
 
         with tf.name_scope('attention'):
             q = tf.matmul(last_item_embedding, self.W1)
             k = tf.matmul(input_embedding, self.W2)
-            q_k = tf.sigmoid(tf.reshape(q, [self.batch_size, 1, self.hidden_size]) + k + self.b)
+            q_k = tf.sigmoid(q + k + self.b)
             # item为0对应的embedding应该被mask掉
-            alpha = tf.matmul(q_k, self.Q) * tf.expand_dims(tf.cast(self.mask, tf.float32),
-                                                            axis=-1)  # [batch_size, maxlen, 1]
-            graph_embedding = tf.reduce_sum(alpha * input_embedding, axis=1)
+            alpha = tf.matmul(q_k, self.Q) * tf.expand_dims(tf.cast(self.mask, tf.float32), axis=-1)  # [batch_size, maxlen, 1]
+            graph_embedding = tf.reduce_sum(alpha * input_embedding, axis=1) # [batch_size, hidden_size]
 
         with tf.name_scope('get_candidate_item_score'):
-            hybrid_embedding = tf.matmul(tf.concat([last_item_embedding, graph_embedding], axis=-1), self.W3)
+            hybrid_embedding = tf.matmul(tf.concat([tf.squeeze(last_item_embedding), graph_embedding], axis=-1), self.W3)
             candidate_item_embedding = self.ggnn.embedding[1:]  # [从1开始的item, hidden_size]
             candidate_item_score = tf.matmul(hybrid_embedding, candidate_item_embedding, transpose_b=True)
 
-        with tf.name_scope('loss'):
-            loss = tf.reduce_sum(
-                tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.labels, logits=candidate_item_score))
+        with tf.name_scope('metrics'):
+            batch_pre, batch_mrr = self.pre_mrr.result(self.label - 1, candidate_item_score)
+            loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label - 1, logits=candidate_item_score))
             if trainable is False:
-                return loss
+                return loss, batch_pre, batch_mrr
             l2_variables = [var for var in tf.trainable_variables() if len(var.shape) > 1]
             l2_loss = self.l2_weight * tf.reduce_sum([tf.nn.l2_loss(var) for var in l2_variables])
-            return loss + l2_loss
+            return loss + l2_loss, batch_pre, batch_mrr
