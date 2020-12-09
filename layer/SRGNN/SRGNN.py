@@ -1,5 +1,5 @@
 import tensorflow as tf
-from layer.ggnn import GGNN
+from layer.SRGNN.ggnn import GGNN
 from metrics.precision_mrr import PRE_MRR
 import math
 
