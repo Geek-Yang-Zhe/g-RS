@@ -1,0 +1,6 @@
+__pycache__
+*.csv
+processed_data
+data
+unit_test
+tensorboard

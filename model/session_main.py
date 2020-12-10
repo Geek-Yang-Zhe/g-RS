@@ -1,19 +1,20 @@
 from model.utils import padding_mask, generate_batch_index, generate_batch_AdjMatrix
 import pickle
-from layer.SRGNN import SRGNNLayer
+from layer.SRGNN.SRGNN import SRGNNLayer
 import os
 import tensorflow as tf
 from collections import defaultdict
 import csv
+from data.config import data_save_path
 
 # 确保可以复现
 tf.set_random_seed(0)
 
 # diginetica 43105
-class Main(object):
+class SessionMain(object):
     def __init__(self):
         self.train_data, self.train_label, self.test_data, self.test_label = self.get_inputs(
-            path='../processed_data/diginetica_sample')
+            path=os.path.join(data_save_path, 'diginetica_sample_1'))
         self.train_mask, self.train_sess, self.train_label = padding_mask(self.train_data, self.train_label)
         self.test_mask, self.test_sess, self.test_label = padding_mask(self.test_data, self.test_label)
         self.metrics = defaultdict(list)
@@ -99,4 +100,4 @@ class Main(object):
                 writer.writerow(row)
 
 if __name__ == '__main__':
-    main = Main()
+    main = SessionMain()

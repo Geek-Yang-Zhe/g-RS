@@ -1,9 +1,6 @@
 import os
 import pickle
 from preprocessing.base_process import BaseProcess
-import csv
-from collections import defaultdict
-import time
 
 # 将用户点击处理成[session1, session2, ... ], [label1, label2, ... ]
 class SessionProcess(BaseProcess):
@@ -14,17 +11,17 @@ class SessionProcess(BaseProcess):
         self.filter_sess_dict(sess_dict, date_dict)
 
         # 划分训练集，测试集，编码
-        train_sess_id, test_sess_id = self.train_test_split(date_dict, day=7)
-        train_sess_list, item2idx = self.encode_item([sess_dict[sess_id] for sess_id in train_sess_id])
-        test_sess_list = self.decode_sess([sess_dict[sess_id] for sess_id in test_sess_id], item2idx)
+        train_sess_list, test_sess_list = self.train_test_split(sess_dict, date_dict, day=7)
+        train_sess_list, item2idx = self.encode_sess(train_sess_list)
+        test_sess_list = self.decode_sess(test_sess_list, item2idx)
         print('item的数量为{}'.format(len(item2idx)))
 
         # 生成序列和预测的标签
         train_sess_list, train_label = self.generate_data_label(train_sess_list)
         test_sess_list, test_label = self.generate_data_label(test_sess_list)
 
-        print(len(train_sess_list))
-        print(len(test_sess_list))
+        print(train_sess_list)
+        print(test_sess_list)
 
         # 写入文件
         if not os.path.exists(save_path):
@@ -55,14 +52,6 @@ class SessionProcess(BaseProcess):
                 del date_dict[sess_id]
             else:
                 sess_dict[sess_id] = filter_sess
-
-    def train_test_split(self, date_dict, day=1):
-        # 按照session结束时间划分训练集测试集
-        sort_date_tuple = sorted(date_dict.items(), key=lambda x: x[1])
-        max_date = sort_date_tuple[-1][1] - day * 3600 * 24
-        test_sess_id = [sess_id for sess_id, date in sort_date_tuple if date > max_date]
-        train_sess_id = [sess_id for sess_id, date in sort_date_tuple if date <= max_date]
-        return train_sess_id, test_sess_id
 
     def decode_sess(self, sess_list, item2idx):
         # 解码，遇到训练集中没有出现的item，忽略，之后判断sequence的长度来决定是否采用这个session。
