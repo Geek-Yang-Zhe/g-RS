@@ -4,6 +4,7 @@ import math
 
 class GraphSAGE():
     def __init__(self, adj_table, embedding_dim, negative_samples, neighbor_sample_list, weight_dim_list):
+        assert len(neighbor_sample_list) == len(weight_dim_list)
         self.adj_table = adj_table
         self.embedding_dim = embedding_dim
         self.negative_samples = negative_samples
@@ -22,30 +23,41 @@ class GraphSAGE():
         self._build()
 
     def _build(self):
-        self.sample_idx_each_layer = self.sample_for_each_layer()
-        self.u_embedding = self.aggregate(self.sample_idx_each_layer)
+        with tf.name_scope('sample_and_learn_agg_for_u'):
+            self.sample_uidx_each_layer = self.sample_for_each_layer(self.u_nodes)
+            self.u_embedding, self.agg_list = self.aggregate(self.sample_uidx_each_layer)
+        with tf.name_scope('sample_and_agg_for_v'):
+            self.sample_vidx_each_layer = self.sample_for_each_layer(self.v_nodes)
+            self.v_embedding, _ = self.aggregate(self.sample_vidx_each_layer, agg_list=self.agg_list)
 
-    def aggregate(self, sample_idx_each_layer):
+
+    def aggregate(self, sample_idx_each_layer, agg_list=None):
         # 第0层聚合：1 -> 0, 2 -> 1, ..., total_layers -> total_layers - 1
         # 第1层聚合：1 -> 0, 2 -> 1, ..., total_layers - 1 -> total_layers - 2
         # 第total_layers - 1层聚合: 1 -> 0
         layer_embedding = [tf.nn.embedding_lookup(self.embedding, idx) for idx in sample_idx_each_layer]
+        AGG_list = agg_list if agg_list else []
         for layer in range(len(self.neighbor_sample_list)):
             input_dim = self.weight_dim_list[layer]
             output_dim =self.weight_dim_list[layer + 1]
-            AGG = MeanAggregator(input_dim=input_dim, output_dim=output_dim)
-            for v_idx in range(1, len(self.neighbor_sample_list) - layer):
+            if not agg_list:
+                AGG = MeanAggregator(input_dim=input_dim, output_dim=output_dim, layer_idx=layer)
+                AGG_list.append(AGG)
+            else:
+                AGG = AGG_list[layer]
+            for v_idx in range(1, len(sample_idx_each_layer) - layer):
                 u_idx = v_idx - 1
                 v_sample = self.neighbor_sample_list[u_idx]
                 v_sample_embedding = tf.reshape(layer_embedding[v_idx], [-1, v_sample, input_dim]) # [u_nums, num_sample, dim]
                 u_sample_embedding = layer_embedding[u_idx] # [u_nums, dim]
-                layer_embedding[v_idx - 1] = AGG(u_sample_embedding, v_sample_embedding)
+                layer_embedding[v_idx - 1] = AGG((u_sample_embedding, v_sample_embedding))
+        return layer_embedding[0], AGG_list
 
-    def sample_for_each_layer(self):
+    def sample_for_each_layer(self, input_nodes):
         '''
         :return: [[输入样本点]， [第1层样本点], ... [第len(neighbor_sample_list)层样本点]]
         '''
-        u_nodes = self.u_nodes
+        u_nodes = input_nodes
         sample_idx_each_layer = [u_nodes]
         for i in range(len(self.neighbor_sample_list)):
             sampled_v_nodes = self.sample_from_neighbor(u_nodes, self.neighbor_sample_list[i])
