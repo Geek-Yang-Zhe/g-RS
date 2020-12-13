@@ -37,7 +37,7 @@ class GGNN():
                                                                                      math.sqrt(1 / self.hidden_size)))
 
     def call(self, sess, out_adj, in_adj):
-        last_state = tf.nn.embedding_lookup(self.embedding, sess)
+        last_state = tf.nn.embedding_lookup(self.embedding, sess) #[batch_size, max_node, emb_dim]
         # 只是借用了GRU_Cell的方法，并不是真正的RNN
         for step in range(self.steps):
             with tf.variable_scope('ggnn'):
@@ -47,7 +47,7 @@ class GGNN():
                 with tf.variable_scope('gru'):
                     gate = tf.matmul(tf.concat([rnn_input, last_state], axis=-1), self.W_gate)
                     sigmoid_gate = tf.sigmoid(gate)
-                    update_gate, reset_gate = tf.split(sigmoid_gate, 2, axis=2)
+                    update_gate, reset_gate = tf.split(sigmoid_gate, 2, axis=2) # [batch_size, max_node, hid_dim]
                     reset_state = reset_gate * last_state
                     candidate_state = tf.tanh(tf.matmul(tf.concat([rnn_input, reset_state], axis=-1), self.W_candidate))
                     last_state = (1 - update_gate) * last_state + update_gate * candidate_state
