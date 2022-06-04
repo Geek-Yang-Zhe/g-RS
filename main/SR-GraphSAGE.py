@@ -1,25 +1,35 @@
 from main.utils import padding_mask, generate_batch_index, generate_batch_AdjMatrix
 import pickle
-from layer.SRGNN.SRGNN import SRGNNLayer
+from layer.SRSAGE.srsage import SRSAGE
 import os
 import tensorflow as tf
 from collections import defaultdict
 import csv
-from data.config import data_save_path
+from layer.SRSAGE.ggnn import GGNN
+from preprocessing.session_with_global_graph import SessionGlobalGraph
+from layer.SRSAGE.minibatch import EdgeMiniBatch
+from layer.SRSAGE.graphsage import GraphSAGE
 
 # 确保可以复现
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 tf.set_random_seed(0)
 
 # diginetica 43105
 class SessionMain(object):
     def __init__(self):
-        self.train_data, self.train_label, self.test_data, self.test_label = self.get_inputs(
-            path=os.path.join(data_save_path, 'diginetica_sample_1'))
-        self.train_mask, self.train_sess, self.train_label = padding_mask(self.train_data, self.train_label)
-        self.test_mask, self.test_sess, self.test_label = padding_mask(self.test_data, self.test_label)
+        self.one_graph = SessionGlobalGraph(read_path='../processed_data/diginetica/encoded_sess')
+        train_data, train_label, test_data, test_label = self.get_inputs(path='../processed_data/diginetica')
+        self.minibatch = EdgeMiniBatch(G=self.one_graph.G, item2idx=self.one_graph.item2idx, neighbor_num=20)
+        self.train_mask, self.train_sess, self.train_label = padding_mask(train_data, train_label)
+        self.test_mask, self.test_sess, self.test_label = padding_mask(test_data, test_label)
         self.metrics = defaultdict(list)
-        self.srgnn = SRGNNLayer(num_item=312, hidden_size=100, learning_rate=1e-3,
-                                l2_weight=1e-5, ggnn_step=1, topk=20, log=True)
+        self.ggnn = GGNN(hidden_size=8, steps=1, num_item=1 + len(self.one_graph.item2idx))
+        self.graphsage = GraphSAGE(adj_table=self.minibatch.train_adj, nodes_degree=self.minibatch.degree,
+                                   embedding_dim=8, negative_samples=19,
+                                   neighbor_sample_list=[5, 10], weight_dim_list=[8, 8],
+                                   concat_list=[True, False], learning_rate=1e-3)
+        self.srgnn = SRSAGE(hidden_size=8, learning_rate=1e-3, l2_weight=1e-5, topk=20, log=True,
+                            sage=self.graphsage, ggnn=self.ggnn)
         self.train_writer = tf.summary.FileWriter(logdir='../tensorboard/train', graph=tf.get_default_graph())
         self.test_writer = tf.summary.FileWriter(logdir='../tensorboard/test')
         self.train(epoch=10, batch_size=100)
@@ -43,6 +53,8 @@ class SessionMain(object):
         feed_dict = {self.srgnn.item_sess: batch_padding_sess, self.srgnn.label: batch_label,
                      self.srgnn.mask: batch_mask, self.srgnn.input_index: batch_input_index,
                      self.srgnn.in_adj: batch_in_adj, self.srgnn.out_adj: batch_out_adj}
+        "加入graphsage需要的u节点"
+        feed_dict[self.graphsage.u_nodes] = batch_sess[:,-1]
         return feed_dict
 
     def train(self, epoch, batch_size):

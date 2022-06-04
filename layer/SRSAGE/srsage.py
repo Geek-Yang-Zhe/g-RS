@@ -1,17 +1,20 @@
 import tensorflow as tf
-from layer.SRGNN.ggnn import GGNN
+from layer.SRSAGE.ggnn import GGNN
 from metrics.precision_mrr import PRE_MRR
 import math
+from layer.SRSAGE.graphsage import GraphSAGE
 
-class SRGNNLayer(object):
-    def __init__(self, num_item, hidden_size, learning_rate, l2_weight, ggnn_step, topk, log):
+class SRSAGE(object):
+    def __init__(self, hidden_size, learning_rate, l2_weight, topk, log, sage: GraphSAGE, ggnn: GGNN):
         self.hidden_size = hidden_size
         self.lr = learning_rate
         self.l2_weight = l2_weight
         self.topk = topk
         self.log = log
 
-        self.ggnn = GGNN(hidden_size=self.hidden_size, steps=ggnn_step, num_item=num_item)
+        self.ggnn = ggnn
+        self.sage = sage
+
         self.pre_mrr = PRE_MRR(topk=topk)
 
         self.mask = tf.placeholder(dtype=tf.int32, shape=[None, None])
@@ -55,8 +58,6 @@ class SRGNNLayer(object):
     def call(self, trainable=True):
         batch_item_embedding = self.ggnn.call(self.item_sess, in_adj=self.in_adj,
                                               out_adj=self.out_adj)  # [batch_size, max_node, hidden_size]
-
-        "编码映射"
         with tf.name_scope('get_last_item_embedding'):
             last_index_indices = tf.reshape(tf.reduce_sum(self.mask, axis=1) - 1, [-1, 1])
             last_index = tf.gather(self.input_index, last_index_indices, batch_dims=-1) # [batch_size, 1]
@@ -65,7 +66,8 @@ class SRGNNLayer(object):
         with tf.name_scope('get_input_item_embedding'):
             input_embedding = tf.gather(batch_item_embedding, self.input_index, batch_dims=-1)  # [batch_size, maxlen, hidden_size]
 
-
+        with tf.name_scope('get_sample_agg_tensor'):
+            sage_last_embedding = self.sage.sage() # [batch_size, hidden_size]
 
         with tf.name_scope('attention'):
             q = tf.matmul(last_item_embedding, self.W1)
@@ -74,6 +76,9 @@ class SRGNNLayer(object):
             # item为0对应的embedding应该被mask掉
             alpha = tf.matmul(q_k, self.Q) * tf.expand_dims(tf.cast(self.mask, tf.float32), axis=-1)  # [batch_size, maxlen, 1]
             graph_embedding = tf.reduce_sum(alpha * input_embedding, axis=1) # [batch_size, hidden_size]
+
+        with tf.name_scope('add_tensor'):
+            graph_embedding = graph_embedding + sage_last_embedding
 
         with tf.name_scope('get_candidate_item_score'):
             hybrid_embedding = tf.matmul(tf.concat([tf.squeeze(last_item_embedding), graph_embedding], axis=-1), self.W3)

@@ -4,3 +4,4 @@ processed_data
 data
 unit_test
 tensorboard
+*.rar

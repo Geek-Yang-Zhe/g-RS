@@ -23,10 +23,10 @@ class LinkPredictionMain():
                                    concat_list=[True, True], learning_rate=1e-3)
         self.metrics = defaultdict(list)
 
-        self.build_on_other_model()
-        self.train_on_other_model(batch_size=128, epoch=100)
+        # self.build_on_other_model()
+        # self.train_on_other_model(batch_size=128, epoch=100)
 
-        # self.train(batch_size=128, epoch=100)
+        self.train(batch_size=128, epoch=100)
 
     def build_on_other_model(self):
         self.adj_info = tf.Variable(self.minibatch.train_adj, trainable=False, name="adj_info")

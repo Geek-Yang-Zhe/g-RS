@@ -17,11 +17,37 @@ class SessionProcess(BaseProcess):
         print('item的数量为{}'.format(len(item2idx)))
 
         # 生成序列和预测的标签
+        self.train_sess_list, self.train_label = self.generate_data_label(train_sess_list)
+        self.test_sess_list, self.test_label = self.generate_data_label(test_sess_list)
+
+        # 写入文件
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        with open(save_path + '/train.pkl', 'wb') as f:
+            pickle.dump((self.train_sess_list, self.train_label), f)
+        with open(save_path + '/test.pkl', 'wb') as f:
+            pickle.dump((self.test_sess_list, self.test_label), f)
+        with open(save_path + '/encoded_sess', 'wb') as f:
+            pickle.dump((train_sess_list, test_sess_list, item2idx), f)
+
+
+    def process_yoochoose_sample(self, save_path, read_path):
+        # 预处理
+        sess_dict, date_dict = self.generate_yoochoose_date_dict(read_path=read_path)
+        self.filter_sess_dict(sess_dict, date_dict)
+
+        # 划分训练集，测试集，编码
+        train_sess_list, test_sess_list = self.train_test_split(sess_dict, date_dict, day=1)
+        train_sess_list, item2idx = self.encode_sess(train_sess_list)
+        test_sess_list = self.decode_sess(test_sess_list, item2idx)
+        print('item的数量为{}'.format(len(item2idx)))
+
+        # 生成序列和预测的标签
         train_sess_list, train_label = self.generate_data_label(train_sess_list)
         test_sess_list, test_label = self.generate_data_label(test_sess_list)
 
-        print(train_sess_list)
-        print(test_sess_list)
+        # print(train_sess_list)
+        # print(test_sess_list)
 
         # 写入文件
         if not os.path.exists(save_path):
@@ -30,6 +56,8 @@ class SessionProcess(BaseProcess):
             pickle.dump((train_sess_list, train_label), f)
         with open(save_path + '/test.pkl', 'wb') as f:
             pickle.dump((test_sess_list, test_label), f)
+
+        return train_sess_list, test_sess_list, item2idx
 
 
     def filter_sess_dict(self, sess_dict, date_dict):

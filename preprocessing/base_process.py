@@ -21,6 +21,21 @@ class BaseProcess():
             sess_dict[sess_id] = [x[0] for x in sort_sess]
         return sess_dict, date_dict
 
+    def generate_yoochoose_date_dict(self, read_path="yoochoose-sample.txt"):
+        sess_dict = defaultdict(list)  # 每个session {sess_id: [item_id1, item_id2, ...]}
+        date_dict = defaultdict(float)  # 每个session结束时间 {sess_id: time}
+        with open(read_path, 'r') as f:
+            reader = csv.DictReader(f, delimiter=',', fieldnames=['sessionId', 'timeframe', 'itemId', 'useless'])
+            for row in reader:
+                sess_id = row['sessionId']
+                cur_time = time.mktime(time.strptime(row['timeframe'], "%Y-%m-%dT%H:%M:%S.%fZ"))
+                sess_dict[sess_id].append((row['itemId'], cur_time))
+        for sess_id in sess_dict.keys():
+            sort_sess = sorted(sess_dict[sess_id], key=lambda x: x[1])
+            date_dict[sess_id] = sort_sess[-1][-1]
+            sess_dict[sess_id] = [x[0] for x in sort_sess]
+        return sess_dict, date_dict
+
     # 将item编码
     def encode_sess(self, sess_list, merge_sess=False):
         item2idx = {}
