@@ -1,6 +1,6 @@
 import tensorflow as tf
 import math
-
+import numpy as np
 
 class GGNN():
     def __init__(self, hidden_size, steps, num_item):
@@ -12,10 +12,16 @@ class GGNN():
 
     def build(self):
         # 这里第一个为补零的embedding，其他为正常的item
+        def init_func(shape, dtype, partition_info):
+            np.random.seed(0)
+            initializer_val = np.random.rand(1 + self.num_item, self.hidden_size)
+            initializer_val[0, :] = 0.0
+            return initializer_val
+
         with tf.variable_scope("embedding"):
             self.embedding = tf.get_variable(name='embedding', shape=[1 + self.num_item, self.hidden_size],
                                              dtype=tf.float32,
-                                             initializer=tf.random_uniform_initializer(0, 1))
+                                             initializer=init_func)
         self.W_in = tf.get_variable(name='W_in', shape=[self.hidden_size, self.hidden_size], dtype=tf.float32,
                                     initializer=tf.random_uniform_initializer(-math.sqrt(1 / self.hidden_size),
                                                                               math.sqrt(1 / self.hidden_size)))

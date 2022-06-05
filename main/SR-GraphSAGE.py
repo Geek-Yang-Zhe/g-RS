@@ -1,3 +1,5 @@
+import sys
+sys.path.append('../')
 from main.utils import padding_mask, generate_batch_index, generate_batch_AdjMatrix
 import pickle
 from layer.SRSAGE.srsage import SRSAGE
@@ -9,9 +11,10 @@ from layer.SRSAGE.ggnn import GGNN
 from preprocessing.session_with_global_graph import SessionGlobalGraph
 from layer.SRSAGE.minibatch import EdgeMiniBatch
 from layer.SRSAGE.graphsage import GraphSAGE
+import numpy as np
 
 # 确保可以复现
-os.environ['CUDA_VISIBLE_DEVICES'] = "0"
+os.environ['CUDA_VISIBLE_DEVICES'] = "-1"
 tf.set_random_seed(0)
 
 # diginetica 43105
@@ -40,11 +43,13 @@ class SessionMain(object):
     def get_inputs(self, path):
         with open(os.path.join(path, 'train.pkl'), 'rb') as f:
             train_data, train_label = pickle.load(f)
+            self.train_last = np.array([x[-1] for x in train_data])
         with open(os.path.join(path, 'test.pkl'), 'rb') as f:
             test_data, test_label = pickle.load(f)
+            self.test_last = np.array([x[-1] for x in test_data])
         return train_data, train_label, test_data, test_label
 
-    def get_feed_dict(self, batch_index, sess, label, mask):
+    def get_feed_dict(self, batch_index, sess, label, mask, mode='train'):
         batch_sess = sess[batch_index]
         batch_label = label[batch_index]
         batch_mask = mask[batch_index]
@@ -54,7 +59,10 @@ class SessionMain(object):
                      self.srgnn.mask: batch_mask, self.srgnn.input_index: batch_input_index,
                      self.srgnn.in_adj: batch_in_adj, self.srgnn.out_adj: batch_out_adj}
         "加入graphsage需要的u节点"
-        feed_dict[self.graphsage.u_nodes] = batch_sess[:,-1]
+        if mode == 'test':
+            feed_dict[self.graphsage.u_nodes] = self.test_last[batch_index]
+        else:
+            feed_dict[self.graphsage.u_nodes] = self.train_last[batch_index]
         return feed_dict
 
     def train(self, epoch, batch_size):
@@ -66,7 +74,9 @@ class SessionMain(object):
                 feed_dict = self.get_feed_dict(batch_index, self.train_sess, self.train_label, self.train_mask)
                 fetches = [self.srgnn.merge_ops, self.srgnn.global_step,
                            self.srgnn.loss, self.srgnn.batch_pre, self.srgnn.batch_mrr, self.srgnn.optimizer]
-                merged_summary, step, batch_loss, batch_precision, batch_mrr, _ = self.srgnn.sess.run(fetches, feed_dict)
+                merged_summary, step, batch_loss, batch_precision, batch_mrr, _ = \
+                    self.srgnn.sess.run(fetches, feed_dict)
+                # print(u_embedding)
                 self.train_writer.add_summary(merged_summary, step)
                 loss_epoch += batch_loss * len(batch_index)
                 precision_epoch += batch_precision * len(batch_index)
@@ -82,11 +92,13 @@ class SessionMain(object):
 
     # batch_size应尽可能大
     def test(self, batch_size):
+        self.srgnn.sess.run(tf.assign(self.graphsage.adj_table, self.minibatch.test_adj))
         loss_epoch, precision_epoch, mrr_epoch = 0, 0, 0
         total_samples = len(self.test_sess)
         batch_index_list = generate_batch_index(total_samples, batch_size=batch_size, seed=0)
         for i, batch_index in enumerate(batch_index_list):
-            feed_dict = self.get_feed_dict(batch_index, self.test_sess, self.test_label, self.test_mask)
+            feed_dict = self.get_feed_dict(batch_index, self.test_sess, self.test_label, self.test_mask,
+                                           mode='test')
             fetches = [self.srgnn.merge_ops, self.srgnn.global_step,
                        self.srgnn.loss, self.srgnn.batch_pre, self.srgnn.batch_mrr]
             merged_summary, step, batch_loss, batch_precision, batch_mrr = self.srgnn.sess.run(fetches, feed_dict)

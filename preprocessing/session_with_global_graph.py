@@ -13,7 +13,7 @@ class SessionGlobalGraph():
         self.G = self.construct_graph(train_sess, test_sess)
 
     def construct_graph(self, train_sess, test_sess):
-        G = nx.DiGraph()
+        G = nx.Graph()
         for sess in train_sess + test_sess:
             for i in range(len(sess) - 1):
                 if not G.has_edge(sess[i], sess[i+1]):

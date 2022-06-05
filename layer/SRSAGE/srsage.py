@@ -67,7 +67,7 @@ class SRSAGE(object):
             input_embedding = tf.gather(batch_item_embedding, self.input_index, batch_dims=-1)  # [batch_size, maxlen, hidden_size]
 
         with tf.name_scope('get_sample_agg_tensor'):
-            sage_last_embedding = self.sage.sage() # [batch_size, hidden_size]
+            self.sage_last_embedding = self.sage.sage() # [batch_size, hidden_size]
 
         with tf.name_scope('attention'):
             q = tf.matmul(last_item_embedding, self.W1)
@@ -78,7 +78,7 @@ class SRSAGE(object):
             graph_embedding = tf.reduce_sum(alpha * input_embedding, axis=1) # [batch_size, hidden_size]
 
         with tf.name_scope('add_tensor'):
-            graph_embedding = graph_embedding + sage_last_embedding
+            graph_embedding = graph_embedding + self.sage_last_embedding
 
         with tf.name_scope('get_candidate_item_score'):
             hybrid_embedding = tf.matmul(tf.concat([tf.squeeze(last_item_embedding), graph_embedding], axis=-1), self.W3)

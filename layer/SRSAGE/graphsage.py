@@ -126,13 +126,13 @@ class GraphSAGE():
         :return: [[输入样本点]， [第1层样本点], ... [第len(neighbor_sample_list)层样本点]]
         '''
         u_nodes = input_nodes
-        sample_idx_each_layer = [u_nodes]
+        self.sample_idx_each_layer = [u_nodes]
         for i in range(len(self.neighbor_sample_list)):
             # sampled_v_nodes = self.sampler((u_nodes, self.neighbor_sample_list[i]))
             sampled_v_nodes = self.sample_from_neighbor(u_nodes, self.neighbor_sample_list[i])
             u_nodes = tf.reshape(sampled_v_nodes, [-1, ])
-            sample_idx_each_layer.append(u_nodes)
-        return sample_idx_each_layer
+            self.sample_idx_each_layer.append(u_nodes)
+        return self.sample_idx_each_layer
 
     def sample_from_neighbor(self, u_ids, num_samples):
         if num_samples > self.adj_table.shape[-1]:
